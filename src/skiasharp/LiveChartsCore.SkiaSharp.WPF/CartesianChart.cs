@@ -361,7 +361,12 @@ public class CartesianChart : Chart, ICartesianChartView<SkiaSharpDrawingContext
         legend = new SKDefaultLegend(); // Template.FindName("legend", this) as IChartLegend<SkiaSharpDrawingContext>;
         tooltip = new SKDefaultTooltip(); // Template.FindName("tooltip", this) as IChartTooltip<SkiaSharpDrawingContext>;
 
+#if DEBUG || OVERLAY
+        core.Canvas.PerfOverlayPaint = new SolidColorPaint(new SkiaSharp.SKColor(30, 30, 230)) { ZIndex = int.MaxValue };
+        var label = new LabelGeometry { X = 10, Y = 10, HorizontalAlign = Align.Start, VerticalAlign = Align.Start };
+        core.Canvas.PerfOverlayLabel = label;
         core.Update();
+#endif
     }
 
     /// <inheritdoc cref="Chart.OnUnloaded"/>

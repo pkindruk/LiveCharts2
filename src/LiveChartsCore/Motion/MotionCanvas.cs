@@ -25,6 +25,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using LiveChartsCore.Drawing;
+using LiveChartsCore.Kernel;
 
 namespace LiveChartsCore.Motion;
 
@@ -35,10 +36,8 @@ namespace LiveChartsCore.Motion;
 public class MotionCanvas<TDrawingContext> : IDisposable
     where TDrawingContext : DrawingContext
 {
-    private readonly Stopwatch _stopwatch = new();
+    private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
     private HashSet<IPaint<TDrawingContext>> _paintTasks = new();
-    private readonly List<double> _fpsStack = new();
-    private long _previousFrameTime;
     private long _previousLogTime;
 
     /// <summary>
@@ -46,7 +45,6 @@ public class MotionCanvas<TDrawingContext> : IDisposable
     /// </summary>
     public MotionCanvas()
     {
-        _stopwatch.Start();
     }
 
     internal bool DisableAnimations { get; set; }
@@ -87,6 +85,22 @@ public class MotionCanvas<TDrawingContext> : IDisposable
     /// </summary>
     public HashSet<IAnimatable> Trackers { get; } = new HashSet<IAnimatable>();
 
+#if DEBUG || OVERLAY
+    internal PerfMetricsCollector PerfMetrics { get; set; } = new PerfMetricsCollector();
+
+    internal long HighResClockTicks => _stopwatch.ElapsedTicks;
+
+    /// <summary>
+    /// Performance overlay paint
+    /// </summary>
+    public IPaint<TDrawingContext>? PerfOverlayPaint { get; set; }
+
+    /// <summary>
+    /// Performance overlay label
+    /// </summary>
+    public ILabelGeometry<TDrawingContext>? PerfOverlayLabel { get; set; }
+#endif
+
     /// <summary>
     /// Draws the frame.
     /// </summary>
@@ -101,12 +115,21 @@ public class MotionCanvas<TDrawingContext> : IDisposable
                 $"tread: {Environment.CurrentManagedThreadId}");
 #endif
 
+        long frameTime;
+#if DEBUG || OVERLAY
+        var drawLockBegin = HighResClockTicks;
+#endif
         lock (Sync)
         {
+#if DEBUG || OVERLAY
+            var drawBegin = HighResClockTicks;
+            var drawLockTime = drawBegin - drawLockBegin;
+            PerfMetrics.AddDrawLockTime(drawLockTime);
+#endif
             context.OnBegingDraw();
 
             var isValid = true;
-            var frameTime = _stopwatch.ElapsedMilliseconds;
+            frameTime = _stopwatch.ElapsedMilliseconds;
 
             var toRemoveGeometries = new List<Tuple<IPaint<TDrawingContext>, IDrawable<TDrawingContext>>>();
 
@@ -155,24 +178,33 @@ public class MotionCanvas<TDrawingContext> : IDisposable
                 isValid = false;
             }
 
-#if DEBUG
-            var dt = frameTime - _previousFrameTime;
-            if (dt == 0) dt = 1;
-            _fpsStack.Add(1000 / dt);
-            if (_fpsStack.Count > 15) _fpsStack.RemoveAt(0);
-            if (frameTime - _previousLogTime > 500)
+            IsValid = isValid;
+
+#if DEBUG || OVERLAY
+            if (PerfOverlayPaint is not null && PerfOverlayLabel is not null)
             {
-                if (LiveCharts.EnableLogging)
-                    Trace.WriteLine($"[LiveCharts] fps = {_fpsStack.DefaultIfEmpty(0).Average():0.00}");
-                _previousLogTime = frameTime;
+                PerfOverlayLabel.Text = PerfMetrics.GetFormattedString(false);
+                PerfOverlayPaint.InitializeTask(context);
+                PerfOverlayLabel.Draw(context);
             }
 #endif
 
-            _previousFrameTime = frameTime;
-            IsValid = isValid;
-
             context.OnEndDraw();
+
+#if DEBUG || OVERLAY
+            var drawTime = HighResClockTicks - drawBegin;
+            PerfMetrics.AddDrawTime(drawTime);
+#endif
         }
+
+#if DEBUG
+        if (frameTime - _previousLogTime > 500)
+        {
+            if (LiveCharts.EnableLogging)
+                Trace.WriteLine($"[LiveCharts] {PerfMetrics.GetFormattedString(true)}");
+            _previousLogTime = frameTime;
+        }
+#endif
 
         if (IsValid) Validated?.Invoke(this);
     }

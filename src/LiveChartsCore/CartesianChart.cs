@@ -395,6 +395,10 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
                                // while they are not visible, the problem is when the control is visible again
                                // the animations are not as expected because previously it ran in an invalid case.
 
+#if DEBUG || OVERLAY
+        var measureBegin = Canvas.HighResClockTicks;
+#endif
+
         InvokeOnMeasuring();
 
         if (_preserveFirstDraw)
@@ -710,9 +714,17 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
             ((ChartElement<TDrawingContext>)axis).RemoveOldPaints(View); // <- this is probably obsolete.
             // the probable issue is the "IsVisible" property
         }
+
+#if DEBUG || OVERLAY
+        var measureVisualsBegin = Canvas.HighResClockTicks;
+#endif
         foreach (var section in Sections) AddVisual(section);
         foreach (var visual in VisualElements) AddVisual(visual);
         foreach (var series in Series) AddVisual((ChartElement<TDrawingContext>)series);
+#if DEBUG || OVERLAY
+        var measureVisualsTime = Canvas.HighResClockTicks - measureVisualsBegin;
+        Canvas.PerfMetrics.AddMeasureVisualsTime(measureVisualsTime);
+#endif
 
         if (_previousDrawMarginFrame is not null && _chartView.DrawMarginFrame != _previousDrawMarginFrame)
         {
@@ -747,6 +759,11 @@ public class CartesianChart<TDrawingContext> : Chart<TDrawingContext>
         ThemeId = LiveCharts.CurrentSettings.ThemeId;
         PreviousSeriesAtLegend = Series.Where(x => x.IsVisibleAtLegend).ToList();
         PreviousLegendPosition = LegendPosition;
+
+#if DEBUG || OVERLAY
+        var measureTime = Canvas.HighResClockTicks - measureBegin;
+        Canvas.PerfMetrics.AddMeasureTime(measureTime);
+#endif
 
         Canvas.Invalidate();
     }
